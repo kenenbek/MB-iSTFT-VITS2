@@ -170,15 +170,14 @@ class TextAudioCollate():
 
 
 """Multi speaker version"""
-class TextAudioSpeakerLoader(torch.utils.data.Dataset):
+class TextAudioSpeakerToneLoader(torch.utils.data.Dataset):
     """
-        1) loads audio, speaker_id, text pairs
+        1) loads audio, speaker_id, tone, text pairs
         2) normalizes text and converts them to sequences of integers
         3) computes spectrograms from audio files.
     """
     def __init__(self, audiopaths_sid_text, hparams):
-        self.hparams = hparams
-        self.audiopaths_sid_text = load_filepaths_and_text(audiopaths_sid_text)
+        self.audiopaths_sid_tone_text = load_filepaths_and_text(audiopaths_sid_text)
         self.text_cleaners = hparams.text_cleaners
         self.max_wav_value = hparams.max_wav_value
         self.sampling_rate = hparams.sampling_rate
@@ -187,19 +186,25 @@ class TextAudioSpeakerLoader(torch.utils.data.Dataset):
         self.win_length     = hparams.win_length
         self.sampling_rate  = hparams.sampling_rate
 
-        self.use_mel_spec_posterior = getattr(hparams, "use_mel_posterior_encoder", False)
-        if self.use_mel_spec_posterior:
-            self.n_mel_channels = getattr(hparams, "n_mel_channels", 80)
         self.cleaned_text = getattr(hparams, "cleaned_text", False)
 
         self.add_blank = hparams.add_blank
         self.min_text_len = getattr(hparams, "min_text_len", 1)
         self.max_text_len = getattr(hparams, "max_text_len", 190)
-        # self.min_audio_len = getattr(hparams, "min_audio_len", 8192)
 
         random.seed(1234)
-        random.shuffle(self.audiopaths_sid_text)
+        random.shuffle(self.audiopaths_sid_tone_text)
         self._filter()
+
+        self.speaker_dict = {
+            "Timur": 0,
+            "Aiganysh": 1,
+        }
+        self.tone_dict = {
+            "neutral": 0,
+            "strict": 1,
+            "friendly": 2,
+        }
 
     def _filter(self):
         """
@@ -209,37 +214,25 @@ class TextAudioSpeakerLoader(torch.utils.data.Dataset):
         # wav_length ~= file_size / (wav_channels * Bytes per dim) = file_size / (1 * 2)
         # spec_length = wav_length // hop_length
 
-        audiopaths_sid_text_new = []
+        audiopaths_sid_tone_text_new = []
         lengths = []
-        for audiopath, sid, text in self.audiopaths_sid_text:
-            '''
-            if not os.path.isfile(audiopath):
-                continue
-            '''
+        for audiopath, sid, tone_id, real_text, text in self.audiopaths_sid_tone_text:
             if self.min_text_len <= len(text) and len(text) <= self.max_text_len:
-                audiopaths_sid_text_new.append([audiopath, sid, text])
-                lengths.append(os.path.getsize(audiopath) // (2 * self.hop_length)) # !
-                '''
-                length = os.path.getsize(audiopath) // (2 * self.hop_length)
-                if length < self.min_audio_len // self.hop_length:
-                    continue
-                lengths.append(length)
-                '''
-
-        self.audiopaths_sid_text = audiopaths_sid_text_new
+                audiopaths_sid_tone_text_new.append([audiopath, sid, tone_id, real_text, text])
+                lengths.append(os.path.getsize(audiopath) // (2 * self.hop_length))
+        self.audiopaths_sid_tone_text = audiopaths_sid_tone_text_new
         self.lengths = lengths
-        #print(len(self.lengths))  # if we use large corpus dataset, we can check how much time it takes.
 
-    def get_audio_text_speaker_pair(self, audiopath_sid_text):
+    def get_audio_text_speaker_tone_pair(self, audiopath_sid_text):
         # separate filename, speaker_id and text
-        audiopath, sid, text = audiopath_sid_text[0], audiopath_sid_text[1], audiopath_sid_text[2]
-        text = self.get_text(text)
+        audiopath, sid, tone, real_text, pronounced_text = audiopath_sid_text
+        text = self.get_text(pronounced_text)
         spec, wav = self.get_audio(audiopath)
         sid = self.get_sid(sid)
-        return (text, spec, wav, sid)
+        tone_id = self.get_tone_id(tone)
+        return text, spec, wav, sid, tone_id
 
     def get_audio(self, filename):
-        # TODO : if linear spec exists convert to mel from existing linear spec
         audio, sampling_rate = load_wav_to_torch(filename)
         if sampling_rate != self.sampling_rate:
             raise ValueError("{} {} SR doesn't match target {} SR".format(
@@ -247,28 +240,12 @@ class TextAudioSpeakerLoader(torch.utils.data.Dataset):
         audio_norm = audio / self.max_wav_value
         audio_norm = audio_norm.unsqueeze(0)
         spec_filename = filename.replace(".wav", ".spec.pt")
-        if self.use_mel_spec_posterior:
-            spec_filename = spec_filename.replace(".spec.pt", ".mel.pt")
         if os.path.exists(spec_filename):
             spec = torch.load(spec_filename)
         else:
-            if self.use_mel_spec_posterior:
-                ''' TODO : (need verification) 
-                if linear spec exists convert to 
-                mel from existing linear spec (uncomment below lines) '''
-                # if os.path.exists(filename.replace(".wav", ".spec.pt")):
-                #     # spec, n_fft, num_mels, sampling_rate, fmin, fmax
-                #     spec = spec_to_mel_torch(
-                #         torch.load(filename.replace(".wav", ".spec.pt")), 
-                #         self.filter_length, self.n_mel_channels, self.sampling_rate,
-                #         self.hparams.mel_fmin, self.hparams.mel_fmax)
-                spec = mel_spectrogram_torch(audio_norm, self.filter_length,
-                    self.n_mel_channels, self.sampling_rate, self.hop_length,
-                    self.win_length, self.hparams.mel_fmin, self.hparams.mel_fmax, center=False)
-            else:
-                spec = spectrogram_torch(audio_norm, self.filter_length,
-                    self.sampling_rate, self.hop_length, self.win_length,
-                    center=False)
+            spec = spectrogram_torch(audio_norm, self.filter_length,
+                self.sampling_rate, self.hop_length, self.win_length,
+                center=False)
             spec = torch.squeeze(spec, 0)
             torch.save(spec, spec_filename)
         return spec, audio_norm
@@ -284,17 +261,23 @@ class TextAudioSpeakerLoader(torch.utils.data.Dataset):
         return text_norm
 
     def get_sid(self, sid):
+        sid = self.speaker_dict[sid]
         sid = torch.LongTensor([int(sid)])
         return sid
 
+    def get_tone_id(self, tone):
+        tone_id = self.tone_dict[tone]
+        tone_id = torch.LongTensor([int(tone_id)])
+        return tone_id
+
     def __getitem__(self, index):
-        return self.get_audio_text_speaker_pair(self.audiopaths_sid_text[index])
+        return self.get_audio_text_speaker_tone_pair(self.audiopaths_sid_tone_text[index])
 
     def __len__(self):
-        return len(self.audiopaths_sid_text)
+        return len(self.audiopaths_sid_tone_text)
 
 
-class TextAudioSpeakerCollate():
+class TextAudioSpeakerToneCollate():
     """ Zero-pads model inputs and targets
     """
     def __init__(self, return_ids=False):
@@ -319,6 +302,7 @@ class TextAudioSpeakerCollate():
         spec_lengths = torch.LongTensor(len(batch))
         wav_lengths = torch.LongTensor(len(batch))
         sid = torch.LongTensor(len(batch))
+        toneid = torch.LongTensor(len(batch))
 
         text_padded = torch.LongTensor(len(batch), max_text_len)
         spec_padded = torch.FloatTensor(len(batch), batch[0][1].size(0), max_spec_len)
@@ -342,10 +326,11 @@ class TextAudioSpeakerCollate():
             wav_lengths[i] = wav.size(1)
 
             sid[i] = row[3]
+            toneid[i] = row[4]
 
         if self.return_ids:
-            return text_padded, text_lengths, spec_padded, spec_lengths, wav_padded, wav_lengths, sid, ids_sorted_decreasing
-        return text_padded, text_lengths, spec_padded, spec_lengths, wav_padded, wav_lengths, sid
+            return text_padded, text_lengths, spec_padded, spec_lengths, wav_padded, wav_lengths, sid, toneid, ids_sorted_decreasing
+        return text_padded, text_lengths, spec_padded, spec_lengths, wav_padded, wav_lengths, sid, toneid
 
 
 class DistributedBucketSampler(torch.utils.data.distributed.DistributedSampler):
