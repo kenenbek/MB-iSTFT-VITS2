@@ -235,9 +235,11 @@ def train_and_evaluate(epoch, hps, nets, optims, schedulers, scaler, loaders, lo
 
 
     for batch_idx, (x, x_lengths, spec, spec_lengths, y, y_lengths, sid, toneid) in enumerate(loader):
-        if net_g.module.use_noise_scaled_mas:
-            current_mas_noise_scale = net_g.module.mas_noise_scale_initial - net_g.module.noise_scale_delta * global_step
-            net_g.module.current_mas_noise_scale = max(current_mas_noise_scale, 0.0)
+        # Safely unwrap model (works for both wrapped and unwrapped models)
+        _net_g = net_g.module if hasattr(net_g, 'module') else net_g
+        if _net_g.use_noise_scaled_mas:
+            current_mas_noise_scale = _net_g.mas_noise_scale_initial - _net_g.noise_scale_delta * global_step
+            _net_g.current_mas_noise_scale = max(current_mas_noise_scale, 0.0)
         x, x_lengths = x.cuda(non_blocking=True), x_lengths.cuda(non_blocking=True)
         spec, spec_lengths = spec.cuda(non_blocking=True), spec_lengths.cuda(non_blocking=True)
         y, y_lengths = y.cuda(non_blocking=True), y_lengths.cuda(non_blocking=True)
