@@ -1,0 +1,73 @@
+# IDEs
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.pyre/
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+venv.bak/
+
+# Build / packaging
+build/
+dist/
+*.egg
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Logs and databases
+*.log
+logs/
+*.sqlite3
+*.db
+
+# Coverage
+.coverage
+coverage.xml
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# System files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Model weights / ML artifacts
+output/
+outputs/
+results/
+checkpoints/
+saved_models/
+weights/
+*.ckpt
+*.pt
+*.pth
+*.h5
+*.onnx
+*.bin
+*.npy
+
+# Audio / temporary data
+wav/
+wavs/
+audio/
+*.wav
+*.flac
+
+# Compiled objects
+*.so
+*.o
+*.class
+

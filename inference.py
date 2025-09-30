@@ -90,14 +90,6 @@ def langdetector(text):  # from PolyLangVITS
     except Exception as e:
         return text
 
-
-speed = 1
-sid = 0
-output_dir = 'output'
-os.makedirs(output_dir, exist_ok=True)
-speakers = [name for sid, name in enumerate(hps.speakers) if name != "None"]
-
-
 def vcss(inputstr): # single
     fltstr = re.sub(r"[\[\]\(\)\{\}]", "", inputstr)
     #fltstr = langdetector(fltstr) #- optional for cjke/cjks type cleaners
@@ -125,6 +117,26 @@ def vcms(inputstr, sid): # multi
             audio = net_g.infer(x_tst, x_tst_lengths, sid=sid, noise_scale=.667, noise_scale_w=0.8, length_scale=1 / speed)[0][0,0].data.cpu().float().numpy()
         write(f'{output_dir}/{speaker}.wav', hps.data.sampling_rate, audio)
         print(f'{output_dir}/{speaker}.wav Generated!')
+
+speed = 1
+output_dir = 'output'
+os.makedirs(output_dir, exist_ok=True)
+speakers = ["Timur", "Aiganysh"]
+tones = ["neutral", "strict"]
+
+def vcmsmt(inputstr): # multi
+    stn_tst = get_text(inputstr, hps)
+
+    for idx, _ in enumerate(speakers):
+        for idy, _ in enumerate(tones):
+            sid = torch.LongTensor([idx]).to(device)
+            t_id = torch.LongTensor([idy]).to(device)
+            with torch.no_grad():
+                x_tst = stn_tst.to(device).unsqueeze(0)
+                x_tst_lengths = torch.LongTensor([stn_tst.size(0)]).to(device)
+                audio = net_g.infer(x_tst, x_tst_lengths, sid=sid, tid=t_id, noise_scale=.667, noise_scale_w=0.8, length_scale=1 / speed)[0][0,0].data.cpu().float().numpy()
+            write(f'{output_dir}/{speaker}.wav', hps.data.sampling_rate, audio)
+            print(f'{output_dir}/{speaker}.wav Generated!')
 
 
 def ex_voice_conversion(sid_tgt): # dummy - TODO : further work
