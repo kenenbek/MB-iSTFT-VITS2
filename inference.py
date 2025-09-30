@@ -13,29 +13,22 @@ from torch.utils.data import DataLoader
 
 import commons
 import utils
-from data_utils import TextAudioLoader, TextAudioCollate, TextAudioSpeakerLoader, TextAudioSpeakerCollate
+from data_utils import TextAudioSpeakerToneLoader, TextAudioSpeakerToneCollate
 from models import SynthesizerTrn
 from text.symbols import symbols
 from text import text_to_sequence
-import langdetect
 
 from scipy.io.wavfile import write
 import re
 from scipy import signal
 
-'''
-from phonemizer.backend.espeak.wrapper import EspeakWrapper
-_ESPEAK_LIBRARY = 'C:\Program Files\eSpeak NG\libespeak-ng.dll'
-EspeakWrapper.set_library(_ESPEAK_LIBRARY)
-'''
-
 # - paths
-path_to_config = "put_your_config_path_here" # path to .json
-path_to_model = "put_your_model_path_here" # path to G_xxxx.pth
+path_to_config = "/mnt/d/VITS2/config.json" # path to .json
+path_to_model = "/mnt/d/VITS2/G_91000.pth" # path to G_xxxx.pth
 
 
 #- text input
-input = "I try to get the waiter's attention by blinking in morse code"
+input = "Алар кой таштардан, арасында кум-шагыл ширелген майда жумуру таштардан, ар кандай бүртүктөгү кумдардын жана кумдуу чопонун кабатчалары менен топторунан түзүлгөн аллүбий-пролүбий чөкмө тоо тектерден турат."
 
 
 # check device
@@ -55,11 +48,11 @@ else:
     posterior_channels = hps.data.filter_length // 2 + 1
     hps.data.use_mel_posterior_encoder = False
 
+print(hps.data.n_speakers)
 net_g = SynthesizerTrn(
     len(symbols),
     posterior_channels,
     hps.train.segment_size // hps.data.hop_length,
-    n_speakers=hps.data.n_speakers, #- >0 for multi speaker
     **hps.model).to(device)
 _ = net_g.eval()
 
@@ -127,16 +120,16 @@ tones = ["neutral", "strict"]
 def vcmsmt(inputstr): # multi
     stn_tst = get_text(inputstr, hps)
 
-    for idx, _ in enumerate(speakers):
-        for idy, _ in enumerate(tones):
+    for idx, speaker in enumerate(speakers):
+        for idy, tone in enumerate(tones):
             sid = torch.LongTensor([idx]).to(device)
             t_id = torch.LongTensor([idy]).to(device)
             with torch.no_grad():
                 x_tst = stn_tst.to(device).unsqueeze(0)
                 x_tst_lengths = torch.LongTensor([stn_tst.size(0)]).to(device)
                 audio = net_g.infer(x_tst, x_tst_lengths, sid=sid, tid=t_id, noise_scale=.667, noise_scale_w=0.8, length_scale=1 / speed)[0][0,0].data.cpu().float().numpy()
-            write(f'{output_dir}/{speaker}.wav', hps.data.sampling_rate, audio)
-            print(f'{output_dir}/{speaker}.wav Generated!')
+            write(f'{output_dir}/{speaker}_{tone}.wav', hps.data.sampling_rate, audio)
+            print(f'{output_dir}/{speaker}_{tone}.wav Generated!')
 
 
 def ex_voice_conversion(sid_tgt): # dummy - TODO : further work
@@ -176,6 +169,6 @@ def ex_voice_conversion(sid_tgt): # dummy - TODO : further work
     ipd.display(ipd.Audio(audio3, rate=hps.data.sampling_rate, normalize=False))
     '''
 
-vcss(input)
+vcmsmt(input)
 
 

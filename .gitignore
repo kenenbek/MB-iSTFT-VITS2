@@ -71,3 +71,5 @@ audio/
 *.o
 *.class
 
+DUMMY1
+monotonic_align/core.c
