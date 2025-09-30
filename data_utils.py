@@ -186,6 +186,9 @@ class TextAudioSpeakerToneLoader(torch.utils.data.Dataset):
         self.win_length     = hparams.win_length
         self.sampling_rate  = hparams.sampling_rate
 
+        self.use_mel_spec_posterior = getattr(hparams, "use_mel_posterior_encoder", False)
+        if self.use_mel_spec_posterior:
+            self.n_mel_channels = getattr(hparams, "n_mel_channels", 80)
         self.cleaned_text = getattr(hparams, "cleaned_text", False)
 
         self.add_blank = hparams.add_blank
@@ -205,6 +208,7 @@ class TextAudioSpeakerToneLoader(torch.utils.data.Dataset):
             "strict": 1,
             "friendly": 2,
         }
+        self.hparams = hparams
 
     def _filter(self):
         """
@@ -217,7 +221,7 @@ class TextAudioSpeakerToneLoader(torch.utils.data.Dataset):
         audiopaths_sid_tone_text_new = []
         lengths = []
         for audiopath, sid, tone_id, real_text, text in self.audiopaths_sid_tone_text:
-            if self.min_text_len <= len(text) and len(text) <= self.max_text_len:
+            if self.min_text_len <= len(text) <= self.max_text_len:
                 audiopaths_sid_tone_text_new.append([audiopath, sid, tone_id, real_text, text])
                 lengths.append(os.path.getsize(audiopath) // (2 * self.hop_length))
         self.audiopaths_sid_tone_text = audiopaths_sid_tone_text_new
@@ -233,6 +237,7 @@ class TextAudioSpeakerToneLoader(torch.utils.data.Dataset):
         return text, spec, wav, sid, tone_id
 
     def get_audio(self, filename):
+        # TODO : if linear spec exists convert to mel from existing linear spec
         audio, sampling_rate = load_wav_to_torch(filename)
         if sampling_rate != self.sampling_rate:
             raise ValueError("{} {} SR doesn't match target {} SR".format(
@@ -240,12 +245,28 @@ class TextAudioSpeakerToneLoader(torch.utils.data.Dataset):
         audio_norm = audio / self.max_wav_value
         audio_norm = audio_norm.unsqueeze(0)
         spec_filename = filename.replace(".wav", ".spec.pt")
+        if self.use_mel_spec_posterior:
+            spec_filename = spec_filename.replace(".spec.pt", ".mel.pt")
         if os.path.exists(spec_filename):
             spec = torch.load(spec_filename)
         else:
-            spec = spectrogram_torch(audio_norm, self.filter_length,
-                self.sampling_rate, self.hop_length, self.win_length,
-                center=False)
+            if self.use_mel_spec_posterior:
+                ''' TODO : (need verification) 
+                if linear spec exists convert to 
+                mel from existing linear spec (uncomment below lines) '''
+                # if os.path.exists(filename.replace(".wav", ".spec.pt")):
+                #     # spec, n_fft, num_mels, sampling_rate, fmin, fmax
+                #     spec = spec_to_mel_torch(
+                #         torch.load(filename.replace(".wav", ".spec.pt")),
+                #         self.filter_length, self.n_mel_channels, self.sampling_rate,
+                #         self.hparams.mel_fmin, self.hparams.mel_fmax)
+                spec = mel_spectrogram_torch(audio_norm, self.filter_length,
+                    self.n_mel_channels, self.sampling_rate, self.hop_length,
+                    self.win_length, self.hparams.mel_fmin, self.hparams.mel_fmax, center=False)
+            else:
+                spec = spectrogram_torch(audio_norm, self.filter_length,
+                    self.sampling_rate, self.hop_length, self.win_length,
+                    center=False)
             spec = torch.squeeze(spec, 0)
             torch.save(spec, spec_filename)
         return spec, audio_norm

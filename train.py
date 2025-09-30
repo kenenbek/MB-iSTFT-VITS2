@@ -8,7 +8,7 @@ from torch import nn, optim
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from torch.cuda.amp import autocast, GradScaler
+from torch.amp import autocast, GradScaler
 import tqdm
 from pqmf import PQMF
 import commons
@@ -245,7 +245,7 @@ def train_and_evaluate(epoch, hps, nets, optims, schedulers, scaler, loaders, lo
         y, y_lengths = y.cuda(non_blocking=True), y_lengths.cuda(non_blocking=True)
         sid, toneid = sid.cuda(non_blocking=True), toneid.cuda(non_blocking=True)
 
-        with autocast(enabled=hps.train.fp16_run):
+        with autocast(device_type='cuda', enabled=hps.train.fp16_run):
             y_hat, y_hat_mb, l_length, attn, ids_slice, x_mask, z_mask, (z, z_p, m_p, logs_p, m_q, logs_q), (
                 hidden_x, logw, logw_) = net_g(x, x_lengths, spec, spec_lengths, sid=sid, tid=toneid)
 
@@ -276,7 +276,7 @@ def train_and_evaluate(epoch, hps, nets, optims, schedulers, scaler, loaders, lo
 
             # Discriminator
             y_d_hat_r, y_d_hat_g, _, _ = net_d(y, y_hat.detach())
-            with autocast(enabled=False):
+            with autocast(device_type='cuda', enabled=False):
                 loss_disc, losses_disc_r, losses_disc_g = discriminator_loss(y_d_hat_r, y_d_hat_g)
                 loss_disc_all = loss_disc
 
@@ -284,7 +284,7 @@ def train_and_evaluate(epoch, hps, nets, optims, schedulers, scaler, loaders, lo
             if net_dur_disc is not None:
                 y_dur_hat_r, y_dur_hat_g = net_dur_disc(hidden_x.detach(), x_mask.detach(), logw_.detach(),
                                                         logw.detach())  # logw is predicted duration, logw_ is real duration
-                with autocast(enabled=False):
+                with autocast(device_type='cuda', enabled=False):
                     # TODO: I think need to mean using the mask, but for now, just mean all
                     loss_dur_disc, losses_dur_disc_r, losses_dur_disc_g = discriminator_loss(y_dur_hat_r, y_dur_hat_g)
                     loss_dur_disc_all = loss_dur_disc
@@ -300,12 +300,12 @@ def train_and_evaluate(epoch, hps, nets, optims, schedulers, scaler, loaders, lo
         grad_norm_d = commons.clip_grad_value_(net_d.parameters(), None)
         scaler.step(optim_d)
 
-        with autocast(enabled=hps.train.fp16_run):
+        with autocast(device_type='cuda', enabled=hps.train.fp16_run):
             # Generator
             y_d_hat_r, y_d_hat_g, fmap_r, fmap_g = net_d(y, y_hat)
             if net_dur_disc is not None:
                 y_dur_hat_r, y_dur_hat_g = net_dur_disc(hidden_x, x_mask, logw_, logw)
-            with autocast(enabled=False):
+            with autocast(device_type='cuda', enabled=False):
                 loss_dur = torch.sum(l_length.float())
                 loss_mel = F.l1_loss(y_mel, y_hat_mel) * hps.train.c_mel
                 loss_kl = kl_loss(z_p, logs_q, m_p, logs_p, z_mask) * hps.train.c_kl
