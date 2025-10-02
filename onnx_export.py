@@ -67,15 +67,11 @@ def build_model(hps, checkpoint_path: str, device: torch.device) -> SynthesizerT
         posterior_channels = hps.data.filter_length // 2 + 1
         hps.data.use_mel_posterior_encoder = False
 
-    # Some configs may omit n_tones; default to 1
-    n_tones = getattr(hps.data, "n_tones", 1)
 
     net_g = SynthesizerTrn(
         n_vocab=len(symbols),
         spec_channels=posterior_channels,
         segment_size=hps.train.segment_size // hps.data.hop_length,
-        n_speakers=hps.data.n_speakers,
-        n_tones=n_tones,
         is_onnx=True,
         **hps.model,
     ).to(device)
