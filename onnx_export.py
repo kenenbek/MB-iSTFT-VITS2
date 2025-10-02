@@ -34,6 +34,29 @@ DEVICE = "cpu"      # "cpu" or "cuda"
 # -----------------------------------------------------------------------------------------
 
 
+def _strip_weight_norms(module: torch.nn.Module) -> None:
+    """Remove weight normalization applied via both legacy utils.weight_norm and
+    the new parametrizations API, for the entire module tree.
+    """
+    # Delayed imports to avoid hard dependency during parse
+    from torch.nn.utils import parametrize as param
+    from torch.nn.utils import weight_norm as wn
+
+    for m in module.modules():
+        # New-style parametrizations: remove if present on 'weight'
+        param_dict = getattr(m, "parametrizations", None)
+        if isinstance(param_dict, torch.nn.ModuleDict) and "weight" in param_dict:
+            try:
+                param.remove_parametrizations(m, "weight", leave_parametrized=False)
+            except Exception:
+                pass
+        # Legacy-style weight_norm removal (no-op if not applied)
+        try:
+            wn.remove_weight_norm(m)
+        except Exception:
+            pass
+
+
 def build_model(hps, checkpoint_path: str, device: torch.device) -> SynthesizerTrn:
     """Instantiate SynthesizerTrn with ONNX-friendly flags and load weights."""
     # Decide posterior channels
@@ -61,11 +84,9 @@ def build_model(hps, checkpoint_path: str, device: torch.device) -> SynthesizerT
 
     net_g.eval()
     with torch.no_grad():
-        # Remove weight norms for export-stable graph
-        if hasattr(net_g, "dec") and hasattr(net_g.dec, "remove_weight_norm"):
-            net_g.dec.remove_weight_norm()
-        if hasattr(net_g, "flow") and hasattr(net_g.flow, "remove_weight_norm"):
-            net_g.flow.remove_weight_norm()
+        # Remove weight norms for export-stable graph (handle both legacy and parametrizations)
+        print("Removing weight norm...")
+        _strip_weight_norms(net_g)
 
     return net_g
 
