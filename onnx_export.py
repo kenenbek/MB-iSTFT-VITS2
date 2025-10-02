@@ -23,14 +23,14 @@ from text.symbols import symbols
 
 # -------------------- Inline config (set USE_INLINE=True to ignore CLI) --------------------
 USE_INLINE = True  # If True, use the variables below instead of argparse
-CONFIG = ""         # e.g. "./configs/istft_vits2_base.json"
-CHECKPOINT = ""     # e.g. "./G_91000.pth"
+CONFIG = "/mnt/d/VITS2/config.json"         # e.g. "./configs/istft_vits2_base.json"
+CHECKPOINT = "/mnt/d/VITS2/G_91000.pth"     # e.g. "./G_91000.pth"
 OUT = "model.onnx"
 OPSET = 15
 SID = 0
 TID = 0
 SEQ_LEN = 50
-DEVICE = "cpu"      # "cpu" or "cuda"
+DEVICE = "cuda"      # "cpu" or "cuda"
 # -----------------------------------------------------------------------------------------
 
 
