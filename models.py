@@ -1316,6 +1316,7 @@ class SynthesizerTrn(nn.Module):
         self.upsample_kernel_sizes = upsample_kernel_sizes
         self.segment_size = segment_size
         self.n_speakers = n_speakers
+        #self.n_tones = n_tones
         self.gin_channels = gin_channels
         self.ms_istft_vits = ms_istft_vits
         self.mb_istft_vits = mb_istft_vits
