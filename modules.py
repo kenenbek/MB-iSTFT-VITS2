@@ -9,6 +9,7 @@ from torch.nn import functional as F
 from torch.nn import Conv1d, ConvTranspose1d, AvgPool1d, Conv2d
 from torch.nn.utils.parametrizations import weight_norm
 from torch.nn.utils import remove_weight_norm
+from torch.nn.utils import parametrize
 
 import commons
 from commons import init_weights, get_padding
@@ -16,6 +17,23 @@ from transforms import piecewise_rational_quadratic_transform
 
 
 LRELU_SLOPE = 0.1
+
+
+def safe_remove_weight_norm(module):
+    """
+    Safely remove weight normalization from a module.
+    Works with both old weight_norm and new parametrizations API.
+    """
+    try:
+        # Try the new parametrizations API first
+        if hasattr(module, 'parametrizations') and 'weight' in module.parametrizations:
+            parametrize.remove_parametrizations(module, 'weight')
+        else:
+            # Fall back to old API
+            remove_weight_norm(module)
+    except (ValueError, AttributeError) as e:
+        # If weight_norm is not found, silently continue
+        pass
 
 
 class LayerNorm(nn.Module):
@@ -225,9 +243,9 @@ class ResBlock1(torch.nn.Module):
 
     def remove_weight_norm(self):
         for l in self.convs1:
-            remove_weight_norm(l)
+            safe_remove_weight_norm(l)
         for l in self.convs2:
-            remove_weight_norm(l)
+            safe_remove_weight_norm(l)
 
 
 class ResBlock2(torch.nn.Module):
@@ -254,7 +272,7 @@ class ResBlock2(torch.nn.Module):
 
     def remove_weight_norm(self):
         for l in self.convs:
-            remove_weight_norm(l)
+            safe_remove_weight_norm(l)
 
 
 class Log(nn.Module):

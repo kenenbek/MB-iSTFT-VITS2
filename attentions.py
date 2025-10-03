@@ -6,10 +6,29 @@ from torch import nn
 from torch.nn import functional as F
 from torch.nn.utils.parametrizations import weight_norm
 from torch.nn.utils import remove_weight_norm
+from torch.nn.utils import parametrize
 
 import commons
 import modules
 from modules import LayerNorm
+
+
+def safe_remove_weight_norm(module):
+    """
+    Safely remove weight normalization from a module.
+    Works with both old weight_norm and new parametrizations API.
+    """
+    try:
+        # Try the new parametrizations API first
+        if hasattr(module, 'parametrizations') and 'weight' in module.parametrizations:
+            parametrize.remove_parametrizations(module, 'weight')
+        else:
+            # Fall back to old API
+            remove_weight_norm(module)
+    except (ValueError, AttributeError) as e:
+        # If weight_norm is not found, silently continue
+        pass
+
 
 class Encoder(nn.Module): #backward compatible vits2 encoder
   def __init__( # n_heads = 2 in all occurrences
@@ -380,8 +399,8 @@ class Depthwise_Separable_Conv1D(nn.Module):
       self.point_conv = weight_norm(self.point_conv, name = 'weight')
 
     def remove_weight_norm(self):
-      self.depth_conv = remove_weight_norm(self.depth_conv, name = 'weight')
-      self.point_conv = remove_weight_norm(self.point_conv, name = 'weight')
+      safe_remove_weight_norm(self.depth_conv)
+      safe_remove_weight_norm(self.point_conv)
 
 class Depthwise_Separable_TransposeConv1D(nn.Module):
     def __init__(
@@ -410,8 +429,8 @@ class Depthwise_Separable_TransposeConv1D(nn.Module):
       self.point_conv = weight_norm(self.point_conv, name = 'weight')
 
     def remove_weight_norm(self):
-      remove_weight_norm(self.depth_conv, name = 'weight')
-      remove_weight_norm(self.point_conv, name = 'weight')
+      safe_remove_weight_norm(self.depth_conv)
+      safe_remove_weight_norm(self.point_conv)
 
 
 def weight_norm_modules(module, name = 'weight', dim = 0):
