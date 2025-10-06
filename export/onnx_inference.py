@@ -13,8 +13,12 @@
 # - Requires onnxruntime: pip install onnxruntime or onnxruntime-gpu
 # - sid/tid are optional (speaker and tone IDs)
 
-import argparse
+import sys
 import os
+# Add parent directory to path for imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import argparse
 import numpy as np
 import re
 
@@ -119,11 +123,13 @@ def inference_onnx(model_path, config_path, text, output_path,
     
     # Save audio
     print(f"Saving audio to {output_path}...")
-    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else ".", exist_ok=True)
     write(output_path, hps.data.sampling_rate, audio)
     print(f"Done! Audio saved to {output_path}")
     print(f"Sample rate: {hps.data.sampling_rate} Hz")
     print(f"Duration: {len(audio) / hps.data.sampling_rate:.2f} seconds")
+
+    return audio
 
 
 def parse_args():
@@ -179,4 +185,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

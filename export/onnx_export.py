@@ -1,8 +1,12 @@
 ### from @nshmyrev's fork :  https://github.com/alphacep/MB-iSTFT-VITS2/blob/main/export.py
 
+import sys
+import os
+# Add parent directory to path for imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import librosa
 
-import os
 import json
 import math
 
@@ -27,7 +31,7 @@ PATH_TO_CONFIG = "/mnt/d/VITS2/config.json"
 PATH_TO_MODEL = "/mnt/d/VITS2/G_91000.pth"
 SPEAKER_ID = torch.LongTensor([0]) # sid
 TONE_ID = torch.LongTensor([0]) # tid
-SCALE_CONFIG = torch.FloatTensor([0.667, 1.0, 0.8]) # scales -> noise, noise_w, length
+SCALE_CONFIG = torch.FloatTensor([0.667, 1.0, 0.8]) # scales -> noise, length_scale, noise_w
 OPSET_VERSION = 15
 
 

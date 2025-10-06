@@ -1,3 +1,8 @@
+import sys
+import os
+# Add parent directory to path for imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import librosa
 import matplotlib.pyplot as plt
 
@@ -169,6 +174,5 @@ def ex_voice_conversion(sid_tgt): # dummy - TODO : further work
     ipd.display(ipd.Audio(audio3, rate=hps.data.sampling_rate, normalize=False))
     '''
 
-vcmsmt(input)
-
-
+if __name__ == '__main__':
+    vcmsmt(input)
