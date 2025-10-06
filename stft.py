@@ -253,6 +253,23 @@ class OnnxSTFT(torch.nn.Module):
             stride=self.hop_length,
             padding=0)
 
+        # Apply window normalization to prevent amplitude distortion
+        if self.window is not None:
+            window_sum = window_sumsquare(
+                self.window, magnitude.size(-1), hop_length=self.hop_length,
+                win_length=self.win_length, n_fft=self.filter_length,
+                dtype=np.float32)
+            # remove modulation effects
+            approx_nonzero_indices = torch.from_numpy(
+                np.where(window_sum > tiny(window_sum))[0])
+            window_sum = torch.autograd.Variable(
+                torch.from_numpy(window_sum), requires_grad=False)
+            window_sum = window_sum.to(inverse_transform.device) if magnitude.is_cuda else window_sum
+            inverse_transform[:, :, approx_nonzero_indices] /= window_sum[approx_nonzero_indices]
+
+            # scale by hop ratio
+            inverse_transform *= float(self.filter_length) / self.hop_length
+
         inverse_transform = inverse_transform[:, :, int(self.filter_length/2):]
         inverse_transform = inverse_transform[:, :, :-int(self.filter_length/2):]
 
@@ -291,5 +308,3 @@ class TorchSTFT(torch.nn.Module):
         self.magnitude, self.phase = self.transform(input_data)
         reconstruction = self.inverse(self.magnitude, self.phase)
         return reconstruction
-
-
