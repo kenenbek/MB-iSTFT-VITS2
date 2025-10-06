@@ -71,8 +71,10 @@ def infer_forward(text, text_lengths, scales, sid=None, tid=None):
             noise_scale_w=noise_scale_w,
             sid=sid,
             tid=tid,
-    )[0].unsqueeze(1)
-
+    )[0]
+    # Output shape should be [batch, channels, time]
+    # net_g.infer returns [audio_tensor], so [0] gives us the audio
+    # The audio should already have the correct shape
     return audio
 
 
@@ -101,6 +103,6 @@ torch.onnx.export(
         dynamic_axes={
             "input": {0: "batch_size", 1: "phonemes"},
             "input_lengths": {0: "batch_size"},
-            "output": {0: "batch_size", 1: "time"},
+            "output": {0: "batch_size", 2: "time"},  # Fixed: output is [batch, 1, time], so dim 2 is time
         },
 )

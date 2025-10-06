@@ -119,8 +119,19 @@ def inference_onnx(model_path, config_path, text, output_path,
     # Run inference
     print("Running inference...")
     outputs = session.run(None, inputs)
-    audio = outputs[0].squeeze()  # Remove batch dimension
-    
+    # Match the shape handling from regular inference
+    # The output should be [batch, channels, time], we need [time]
+    audio = outputs[0]
+    if audio.ndim == 3:
+        audio = audio[0, 0, :]  # Extract [batch=0, channel=0, :]
+    elif audio.ndim == 2:
+        audio = audio[0, :]  # Extract [batch=0, :]
+    else:
+        audio = audio.squeeze()  # Fallback
+
+    # Ensure float32 type to match PyTorch output
+    audio = audio.astype(np.float32)
+
     # Save audio
     print(f"Saving audio to {output_path}...")
     os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else ".", exist_ok=True)
@@ -128,6 +139,7 @@ def inference_onnx(model_path, config_path, text, output_path,
     print(f"Done! Audio saved to {output_path}")
     print(f"Sample rate: {hps.data.sampling_rate} Hz")
     print(f"Duration: {len(audio) / hps.data.sampling_rate:.2f} seconds")
+    print(f"Audio shape: {audio.shape}, dtype: {audio.dtype}")
 
     return audio
 
