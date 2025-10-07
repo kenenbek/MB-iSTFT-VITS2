@@ -1127,12 +1127,9 @@ class Multistream_iSTFT_Generator(torch.nn.Module):
         '''
         stft = self.stft.to(x.device)
 
-        # pqmf = PQMF(x.device)
-
         x = self.conv_pre(x)  # [B, ch, length]
 
         for i in range(self.num_upsamples):
-
             x = F.leaky_relu(x, modules.LRELU_SLOPE)
             x = self.ups[i](x)
 
@@ -1533,6 +1530,41 @@ class SynthesizerTrn(nn.Module):
         o, o_mb = self.dec((z * y_mask)[:, :, :max_len], g=g)
         return o, o_mb, attn, y_mask, (z, z_p, m_p, logs_p)
 
+    def infer_onnx(self, x, x_lengths, sid=None, tid=None, noise_scale=1, length_scale=1, noise_scale_w=1., max_len=None):
+        """ONNX-compatible inference method that avoids commons.generate_path"""
+        g = self._build_g(sid=sid, tid=tid)
+
+        x, m_p, logs_p, x_mask = self.enc_p(x, x_lengths, g=g)
+        if self.use_sdp:
+            logw = self.dp(x, x_mask, g=g, reverse=True, noise_scale=noise_scale_w)
+        else:
+            logw = self.dp(x, x_mask, g=g)
+        w = torch.exp(logw) * x_mask * length_scale
+        w_ceil = torch.ceil(w)
+        y_lengths = torch.clamp_min(torch.sum(w_ceil, [1, 2]), 1).long()
+        y_mask = torch.unsqueeze(commons.sequence_mask(y_lengths, None), 1).to(x_mask.dtype)
+
+        # ONNX-compatible path generation using torch.repeat_interleave
+        # This replaces commons.generate_path which has tracing issues
+        w_ceil_int = w_ceil.squeeze(1).long()  # [b, t_x]
+
+        # Use repeat_interleave to expand m_p and logs_p according to durations
+        # Note: This assumes batch_size = 1 for ONNX export
+        m_p_expanded = torch.repeat_interleave(m_p, w_ceil_int[0], dim=2)
+        logs_p_expanded = torch.repeat_interleave(logs_p, w_ceil_int[0], dim=2)
+
+        # Trim to match y_mask length
+        max_y_len = y_mask.size(2)
+        m_p_expanded = m_p_expanded[:, :, :max_y_len]
+        logs_p_expanded = logs_p_expanded[:, :, :max_y_len]
+
+        z_p = m_p_expanded + torch.randn_like(m_p_expanded) * torch.exp(logs_p_expanded) * noise_scale
+        z = self.flow(z_p, y_mask, g=g, reverse=True)
+
+        o, o_mb = self.dec((z * y_mask)[:, :, :max_len], g=g)
+        return o
+
+    # ...existing code...
 
     #'''
     ## currently vits-2 is not capable of voice conversion

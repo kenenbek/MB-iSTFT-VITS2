@@ -63,7 +63,8 @@ def infer_forward(text, text_lengths, scales, sid=None, tid=None):
     noise_scale = scales[0]
     length_scale = scales[1]
     noise_scale_w = scales[2]
-    audio = net_g.infer(
+    # Use the ONNX-compatible inference method
+    audio = net_g.infer_onnx(
             text,
             text_lengths,
             noise_scale=noise_scale,
@@ -71,10 +72,12 @@ def infer_forward(text, text_lengths, scales, sid=None, tid=None):
             noise_scale_w=noise_scale_w,
             sid=sid,
             tid=tid,
-    )[0]
-    # Output shape should be [batch, channels, time]
-    # net_g.infer returns [audio_tensor], so [0] gives us the audio
-    # The audio should already have the correct shape
+    )
+
+    # Ensure output has shape [batch, 1, time] for consistency
+    if audio.dim() == 2:
+        audio = audio.unsqueeze(1)  # [batch, time] -> [batch, 1, time]
+
     return audio
 
 
