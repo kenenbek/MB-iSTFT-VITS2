@@ -263,32 +263,22 @@ class OnnxSTFT(torch.nn.Module):
             padding=0)
 
         if self.window is not None:
-            # ONNX-compatible window sum-square correction using F.fold
+            # ONNX-compatible window sum-square correction using conv_transpose1d
             n_frames = magnitude.size(-1)
             n = self.filter_length + self.hop_length * (n_frames - 1)
 
             # Use win_sq buffer directly
             win_sq = self.win_sq.to(inverse_transform.device) if self.win_sq is not None else self.win_sq
 
-            # Create window matrix for all frames using broadcasting
-            # Shape: [n_frames, filter_length]
-            win_sq_expanded = win_sq[:self.filter_length].unsqueeze(0).expand(n_frames, -1)
+            # Use conv_transpose1d for window summation - fully vectorized and ONNX-compatible
+            # Create a kernel from the window
+            win_kernel = win_sq[:self.filter_length].unsqueeze(0).unsqueeze(0)  # [1, 1, filter_length]
 
-            # Use F.fold to place windows at correct positions (reverse of unfold)
-            # This is fully vectorized and ONNX-compatible
-            window_sum = F.fold(
-                win_sq_expanded.unsqueeze(0).unsqueeze(0),  # [1, 1, n_frames, filter_length]
-                output_size=(1, n),
-                kernel_size=(1, self.filter_length),
-                stride=(1, self.hop_length)
-            ).squeeze()  # Remove batch and channel dims
+            # Create ones tensor with shape [1, 1, n_frames] to convolve with the window kernel
+            ones_input = torch.ones(1, 1, n_frames, dtype=inverse_transform.dtype, device=inverse_transform.device)
 
-            # If fold doesn't work in ONNX, use a simpler approach with conv_transpose1d
-            if window_sum.numel() == 0 or window_sum.dim() == 0:
-                # Fallback: use conv_transpose1d for window summation
-                win_kernel = win_sq[:self.filter_length].unsqueeze(0).unsqueeze(0)  # [1, 1, filter_length]
-                ones_input = torch.ones(1, 1, n_frames, dtype=inverse_transform.dtype, device=inverse_transform.device)
-                window_sum = F.conv_transpose1d(ones_input, win_kernel, stride=self.hop_length, padding=0).squeeze()
+            # Use conv_transpose1d to place and sum windows at all frame positions
+            window_sum = F.conv_transpose1d(ones_input, win_kernel, stride=self.hop_length, padding=0).squeeze()
 
             # Apply correction with small epsilon to avoid division by zero
             eps = 1e-8
