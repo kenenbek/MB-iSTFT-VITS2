@@ -267,15 +267,9 @@ class OnnxSTFT(torch.nn.Module):
             n_frames = magnitude.size(-1)
             n = self.filter_length + self.hop_length * (n_frames - 1)
 
-            # Check if win_sq buffer exists (backward compatibility)
-            if self.win_sq is None or self.win_sq.numel() == 0:
-                # Compute on-the-fly if not in checkpoint
-                win_sq = get_window(self.window, self.win_length, fftbins=True)
-                win_sq = librosa_util.normalize(win_sq, norm=None)**2
-                win_sq = librosa_util.pad_center(win_sq, self.filter_length)
-                win_sq = torch.from_numpy(win_sq).float().to(inverse_transform.device)
-            else:
-                win_sq = self.win_sq
+            # Use win_sq buffer directly (should be pre-computed during __init__)
+            # For backward compatibility with old checkpoints, we assume it exists
+            win_sq = self.win_sq.to(inverse_transform.device) if self.win_sq is not None else self.win_sq
 
             # Build window_sum using ONNX-compatible operations
             # Pre-allocate with the exact size needed

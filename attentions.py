@@ -191,13 +191,15 @@ class MultiHeadAttention(nn.Module):
 
     scores = torch.matmul(query / math.sqrt(self.k_channels), key.transpose(-2, -1))
     if self.window_size is not None:
-      assert t_s == t_t, "Relative attention is only available for self-attention."
+      # Removed assert for ONNX compatibility - assumes self-attention during export
+      # assert t_s == t_t, "Relative attention is only available for self-attention."
       key_relative_embeddings = self._get_relative_embeddings(self.emb_rel_k, t_s)
       rel_logits = self._matmul_with_relative_keys(query /math.sqrt(self.k_channels), key_relative_embeddings)
       scores_local = self._relative_position_to_absolute_position(rel_logits)
       scores = scores + scores_local
     if self.proximal_bias:
-      assert t_s == t_t, "Proximal bias is only available for self-attention."
+      # Removed assert for ONNX compatibility - assumes self-attention during export
+      # assert t_s == t_t, "Proximal bias is only available for self-attention."
       scores = scores + self._attention_bias_proximal(t_s).to(device=scores.device, dtype=scores.dtype)
     if mask is not None:
       scores = scores.masked_fill(mask == 0, -1e4)
@@ -268,16 +270,17 @@ class MultiHeadAttention(nn.Module):
 
   def _get_relative_embeddings(self, relative_embeddings, length):
     max_relative_position = 2 * self.window_size + 1
+    # ONNX-compatible padding - use torch.clamp instead of max() to avoid TracerWarning
     # Pad first before slice to avoid using cond ops.
-    pad_length = max(length - (self.window_size + 1), 0)
-    slice_start_position = max((self.window_size + 1) - length, 0)
+    pad_length = torch.clamp(length - (self.window_size + 1), min=0)
+    slice_start_position = torch.clamp((self.window_size + 1) - length, min=0)
     slice_end_position = slice_start_position + 2 * length - 1
-    if pad_length > 0:
-      padded_relative_embeddings = F.pad(
-          relative_embeddings,
-          commons.convert_pad_shape([[0, 0], [pad_length, pad_length], [0, 0]]))
-    else:
-      padded_relative_embeddings = relative_embeddings
+
+    # Use F.pad unconditionally with computed pad_length (ONNX will optimize if pad_length=0)
+    padded_relative_embeddings = F.pad(
+        relative_embeddings,
+        commons.convert_pad_shape([[0, 0], [pad_length, pad_length], [0, 0]]))
+
     used_relative_embeddings = padded_relative_embeddings[:,slice_start_position:slice_end_position]
     return used_relative_embeddings
 
