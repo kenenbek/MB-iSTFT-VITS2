@@ -295,10 +295,10 @@ class OnnxSTFT(torch.nn.Module):
             eps = 1e-8
             window_sum = torch.clamp(window_sum, min=eps)
 
-            # Trim window_sum to match inverse_transform length if needed
+            # Trim window_sum to match inverse_transform length (ONNX-compatible)
             actual_len = inverse_transform.size(-1)
-            if window_sum.size(0) > actual_len:
-                window_sum = window_sum[:actual_len]
+            # Use slicing with min to avoid conditional that causes TracerWarning
+            window_sum = window_sum[:actual_len]
 
             inverse_transform = inverse_transform / window_sum.unsqueeze(0).unsqueeze(0)
 
