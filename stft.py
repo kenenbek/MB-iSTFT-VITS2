@@ -210,6 +210,13 @@ class OnnxSTFT(torch.nn.Module):
             forward_basis *= fft_window
             inverse_basis *= fft_window
 
+            # Pre-compute window sum-square for ONNX compatibility
+            # This replaces the NumPy-based computation in inverse()
+            win_sq = get_window(window, win_length, fftbins=True)
+            win_sq = librosa_util.normalize(win_sq, norm=None)**2
+            win_sq = librosa_util.pad_center(win_sq, filter_length)
+            self.register_buffer('win_sq', torch.from_numpy(win_sq).float())
+
         self.register_buffer('forward_basis', forward_basis.float())
         self.register_buffer('inverse_basis', inverse_basis.float())
 
@@ -249,25 +256,28 @@ class OnnxSTFT(torch.nn.Module):
 
         inverse_transform = F.conv_transpose1d(
             recombine_magnitude_phase,
-            Variable(self.inverse_basis, requires_grad=False),
+            self.inverse_basis,
             stride=self.hop_length,
             padding=0)
 
-        # Apply window normalization to prevent amplitude distortion
         if self.window is not None:
-            window_sum = window_sumsquare(
-                self.window, magnitude.size(-1), hop_length=self.hop_length,
-                win_length=self.win_length, n_fft=self.filter_length,
-                dtype=np.float32)
-            # remove modulation effects
-            approx_nonzero_indices = torch.from_numpy(
-                np.where(window_sum > tiny(window_sum))[0])
-            window_sum = torch.autograd.Variable(
-                torch.from_numpy(window_sum), requires_grad=False)
-            window_sum = window_sum.to(inverse_transform.device) if magnitude.is_cuda else window_sum
-            inverse_transform[:, :, approx_nonzero_indices] /= window_sum[approx_nonzero_indices]
+            # ONNX-compatible window sum-square correction
+            n_frames = magnitude.size(-1)
+            n = self.filter_length + self.hop_length * (n_frames - 1)
 
-            # scale by hop ratio
+            # Build window_sum using pure PyTorch operations
+            window_sum = torch.zeros(n, dtype=inverse_transform.dtype, device=inverse_transform.device)
+            for i in range(n_frames):
+                sample = i * self.hop_length
+                end = min(n, sample + self.filter_length)
+                window_sum[sample:end] += self.win_sq[:end - sample].to(inverse_transform.device)
+
+            # Apply correction with small epsilon to avoid division by zero
+            eps = 1e-8
+            window_sum = torch.clamp(window_sum, min=eps)
+            inverse_transform = inverse_transform / window_sum.unsqueeze(0).unsqueeze(0)
+
+            # Scale by hop ratio
             inverse_transform *= float(self.filter_length) / self.hop_length
 
         inverse_transform = inverse_transform[:, :, int(self.filter_length/2):]

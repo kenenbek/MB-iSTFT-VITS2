@@ -128,10 +128,10 @@ def inference_onnx(model_path, config_path, text, output_path,
         audio = audio[0, :]  # Extract [batch=0, :]
     else:
         audio = audio.squeeze()  # Fallback
-
+    
     # Ensure float32 type to match PyTorch output
     audio = audio.astype(np.float32)
-
+    
     # Save audio
     print(f"Saving audio to {output_path}...")
     os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else ".", exist_ok=True)
