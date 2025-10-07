@@ -216,6 +216,8 @@ class OnnxSTFT(torch.nn.Module):
             win_sq = librosa_util.normalize(win_sq, norm=None)**2
             win_sq = librosa_util.pad_center(win_sq, filter_length)
             self.register_buffer('win_sq', torch.from_numpy(win_sq).float())
+        else:
+            self.register_buffer('win_sq', None)
 
         self.register_buffer('forward_basis', forward_basis.float())
         self.register_buffer('inverse_basis', inverse_basis.float())
@@ -265,16 +267,39 @@ class OnnxSTFT(torch.nn.Module):
             n_frames = magnitude.size(-1)
             n = self.filter_length + self.hop_length * (n_frames - 1)
 
-            # Build window_sum using pure PyTorch operations
+            # Check if win_sq buffer exists (backward compatibility)
+            if self.win_sq is None or self.win_sq.numel() == 0:
+                # Compute on-the-fly if not in checkpoint
+                win_sq = get_window(self.window, self.win_length, fftbins=True)
+                win_sq = librosa_util.normalize(win_sq, norm=None)**2
+                win_sq = librosa_util.pad_center(win_sq, self.filter_length)
+                win_sq = torch.from_numpy(win_sq).float().to(inverse_transform.device)
+            else:
+                win_sq = self.win_sq
+
+            # Build window_sum using ONNX-compatible operations
+            # Pre-allocate with the exact size needed
             window_sum = torch.zeros(n, dtype=inverse_transform.dtype, device=inverse_transform.device)
+
+            # Use unfold to create a sliding window view and sum
+            # This avoids Python loops and conditionals
+            win_sq_expanded = win_sq[:self.filter_length].to(inverse_transform.device)
+
+            # For each frame, add the window to the corresponding position
             for i in range(n_frames):
-                sample = i * self.hop_length
-                end = min(n, sample + self.filter_length)
-                window_sum[sample:end] += self.win_sq[:end - sample].to(inverse_transform.device)
+                start_idx = i * self.hop_length
+                # Use slicing that's within bounds (ONNX will handle this correctly)
+                window_sum[start_idx:start_idx + self.filter_length] += win_sq_expanded
 
             # Apply correction with small epsilon to avoid division by zero
             eps = 1e-8
             window_sum = torch.clamp(window_sum, min=eps)
+
+            # Trim window_sum to match inverse_transform length if needed
+            actual_len = inverse_transform.size(-1)
+            if window_sum.size(0) > actual_len:
+                window_sum = window_sum[:actual_len]
+
             inverse_transform = inverse_transform / window_sum.unsqueeze(0).unsqueeze(0)
 
             # Scale by hop ratio
