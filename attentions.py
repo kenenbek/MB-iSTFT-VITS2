@@ -270,13 +270,13 @@ class MultiHeadAttention(nn.Module):
 
   def _get_relative_embeddings(self, relative_embeddings, length):
     max_relative_position = 2 * self.window_size + 1
-    # ONNX-compatible padding - use torch.clamp instead of max() to avoid TracerWarning
+    # ONNX-compatible padding - compute pad_length as integer
     # Pad first before slice to avoid using cond ops.
-    pad_length = torch.clamp(length - (self.window_size + 1), min=0)
-    slice_start_position = torch.clamp((self.window_size + 1) - length, min=0)
+    pad_length = max(0, length - (self.window_size + 1))
+    slice_start_position = max(0, (self.window_size + 1) - length)
     slice_end_position = slice_start_position + 2 * length - 1
 
-    # Use F.pad unconditionally with computed pad_length (ONNX will optimize if pad_length=0)
+    # Use F.pad unconditionally (when pad_length=0, it does nothing)
     padded_relative_embeddings = F.pad(
         relative_embeddings,
         commons.convert_pad_shape([[0, 0], [pad_length, pad_length], [0, 0]]))
