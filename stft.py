@@ -263,40 +263,38 @@ class OnnxSTFT(torch.nn.Module):
             padding=0)
 
         if self.window is not None:
-            # ONNX-compatible window sum-square correction
+            # ONNX-compatible window sum-square correction using F.fold
             n_frames = magnitude.size(-1)
             n = self.filter_length + self.hop_length * (n_frames - 1)
 
-            # Use win_sq buffer directly (should be pre-computed during __init__)
+            # Use win_sq buffer directly
             win_sq = self.win_sq.to(inverse_transform.device) if self.win_sq is not None else self.win_sq
 
-            # Build window_sum using vectorized ONNX-compatible operations (no loops)
-            # Create indices for all frames at once
-            win_sq_expanded = win_sq[:self.filter_length].unsqueeze(0)  # [1, filter_length]
+            # Create window matrix for all frames using broadcasting
+            # Shape: [n_frames, filter_length]
+            win_sq_expanded = win_sq[:self.filter_length].unsqueeze(0).expand(n_frames, -1)
 
-            # Use unfold to create overlapping windows and sum them
-            # This replaces the loop with a vectorized operation
-            window_sum = torch.zeros(n, dtype=inverse_transform.dtype, device=inverse_transform.device)
+            # Use F.fold to place windows at correct positions (reverse of unfold)
+            # This is fully vectorized and ONNX-compatible
+            window_sum = F.fold(
+                win_sq_expanded.unsqueeze(0).unsqueeze(0),  # [1, 1, n_frames, filter_length]
+                output_size=(1, n),
+                kernel_size=(1, self.filter_length),
+                stride=(1, self.hop_length)
+            ).squeeze()  # Remove batch and channel dims
 
-            # For ONNX compatibility, we need to avoid dynamic loops
-            # Instead, use a convolution-based approach or matrix operations
-            # Create a matrix that represents the window placement
-            indices = torch.arange(0, n_frames * self.hop_length, self.hop_length, device=inverse_transform.device)
-
-            # Replicate win_sq for each frame
-            win_repeated = win_sq_expanded.repeat(n_frames, 1)  # [n_frames, filter_length]
-
-            # Scatter add the windows to their positions
-            for i in range(n_frames):
-                start_idx = i * self.hop_length
-                end_idx = min(start_idx + self.filter_length, n)
-                window_sum[start_idx:end_idx] += win_sq[:end_idx - start_idx].to(inverse_transform.device)
+            # If fold doesn't work in ONNX, use a simpler approach with conv_transpose1d
+            if window_sum.numel() == 0 or window_sum.dim() == 0:
+                # Fallback: use conv_transpose1d for window summation
+                win_kernel = win_sq[:self.filter_length].unsqueeze(0).unsqueeze(0)  # [1, 1, filter_length]
+                ones_input = torch.ones(1, 1, n_frames, dtype=inverse_transform.dtype, device=inverse_transform.device)
+                window_sum = F.conv_transpose1d(ones_input, win_kernel, stride=self.hop_length, padding=0).squeeze()
 
             # Apply correction with small epsilon to avoid division by zero
             eps = 1e-8
             window_sum = torch.clamp(window_sum, min=eps)
 
-            # Trim window_sum to match inverse_transform length (ONNX-compatible)
+            # Trim window_sum to match inverse_transform length
             actual_len = inverse_transform.size(-1)
             window_sum = window_sum[:actual_len]
 
